@@ -1,0 +1,42 @@
+{
+  "name": "m3u8-downloader-mcp",
+  "version": "1.0.0",
+  "description": "M3U8视频下载工具 - MCP服务器",
+  "main": "index.js",
+  "bin": {
+    "m3u8-downloader-mcp": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "m3u8",
+    "downloader",
+    "video",
+    "mcp",
+    "modelcontextprotocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "cross-spawn": "^7.0.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "index.js",
+    "mcp_server.py",
+    "requirements.txt",
+    "package.json",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zxb7500644/m3u8-mcp.git"
+  }
+}

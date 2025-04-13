@@ -1,4 +1,7 @@
 mcp>=1.6.0
 pycryptodome>=3.18.0
 requests>=2.31.0
-tqdm>=4.66.1 
+tqdm>=4.66.1
+flask>=2.0.1
+ffmpeg-python>=0.2.0
+colorama>=0.4.4 
