@@ -1,6 +1,6 @@
 {
   "name": "m3u8-downloader-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "M3U8视频下载工具 - MCP服务器",
   "main": "index.js",
   "bin": {
