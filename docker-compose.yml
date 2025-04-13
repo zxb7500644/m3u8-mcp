@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  m3u8-server:
+    build: .
+    container_name: mcp-m3u8-server
+    volumes:
+      - ./output:/app/output
+      - ./ts_files:/app/ts_files
+    stdin_open: true
+    tty: true
+    restart: unless-stopped 

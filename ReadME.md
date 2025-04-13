@@ -5,72 +5,132 @@
 ## 功能特点
 
 - 解析m3u8文件，支持加密和非加密的视频流
+- 支持带有auth_key参数的视频片段URL
 - 使用多进程并行下载ts文件片段，提高下载速度
 - 支持AES-128解密
 - 将所有ts文件按顺序合并为mp4文件
+- 失败片段自动重试机制
 - 提供下载状态检查和临时文件清理功能
 
 ## 系统要求
 
 - Python 3.8+
 - 依赖包：mcp, pycryptodome, requests, tqdm
+- Docker (可选，用于容器化部署)
 
-## 安装方法
+## 安装与部署
+
+### 本地安装
 
 1. 克隆或下载本项目
 2. 安装依赖包：
 
 ```bash
-pip install mcp pycryptodome requests tqdm
+pip install -r requirements.txt
+```
+
+### Docker部署
+
+1. 构建并启动容器：
+
+```bash
+# 使用docker-compose
+docker-compose up -d
+
+# 或直接使用docker
+docker build -t yourusername/mcp-m3u8-server .
+docker run -d --rm -i yourusername/mcp-m3u8-server
 ```
 
 ## 使用方法
 
-### 启动服务器
+### 在VS Code中配置
 
-```bash
-python mcp_server.py
+在VS Code的`settings.json`中添加：
+
+```json
+{
+  "mcp": {
+    "inputs": [],
+    "servers": {
+      "mcp-m3u8-server": {
+        "command": "docker",
+        "args": [
+          "run",
+          "--rm",
+          "-i",
+          "yourusername/mcp-m3u8-server"
+        ]
+      }
+    }
+  }
+}
 ```
 
-服务器将在本地启动，默认使用标准I/O(stdio)作为通信通道，可以与支持MCP的客户端（如Claude Desktop）进行连接。
+### 在Claude Desktop中配置
 
-### 提供的工具
+在Claude Desktop的`claude_desktop_config.json`中添加：
 
-1. **download_m3u8_video** - 从m3u8链接下载视频，解密并合并为mp4文件
-   - 参数：
-     - m3u8_url: m3u8文件的URL地址
-     - output_path: 输出mp4文件的本地保存路径
-     - processes: 并行下载的进程数，默认为4
-   - 返回：输出文件的完整路径
+```json
+{
+  "mcpServers": {
+    "mcp-m3u8-server": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "yourusername/mcp-m3u8-server"
+      ]
+    }
+  }
+}
+```
 
-2. **check_download_status** - 检查当前下载状态和临时文件夹信息
-   - 返回：当前下载状态和临时文件信息
+如果需要访问本地文件系统，可以添加卷挂载：
 
-3. **clean_temp_files** - 清理下载过程中产生的临时文件
-   - 返回：清理结果信息
+```json
+{
+  "mcpServers": {
+    "mcp-m3u8-server": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-v", "/path/to/local/output:/app/output",
+        "-v", "/path/to/local/ts_files:/app/ts_files",
+        "yourusername/mcp-m3u8-server"
+      ]
+    }
+  }
+}
+```
 
-### 在Claude Desktop中使用
+### 使用示例
 
-1. 启动服务器
-2. 在Claude Desktop中连接到本地服务器
-3. 向Claude询问关于下载m3u8视频的任务，例如：
-   - "请帮我下载这个m3u8视频：[URL]，并保存到 D:/videos/output.mp4"
-   - "检查当前的下载状态"
-   - "清理所有的临时文件"
+完成配置后，你可以在Claude中使用以下自然语言指令：
+
+- "分析这个m3u8文件：https://example.com/video.m3u8"
+- "下载这个m3u8视频：https://example.com/video.m3u8 并保存到D:/videos/output.mp4"
+- "检查当前下载状态"
+- "清理所有临时文件"
+
+## 提供的工具
+
+1. **analyze_m3u8** - 分析m3u8文件，获取基本信息
+2. **download_m3u8_video** - 从m3u8链接下载视频，解密并合并为mp4文件
+3. **check_download_status** - 检查当前下载状态和临时文件夹信息
+4. **clean_temp_files** - 清理下载过程中产生的临时文件
 
 ## 实现细节
 
-- 服务器使用MCP (Model Context Protocol) SDK创建，提供标准化的工具接口
+- 支持标准m3u8文件和带有auth_key参数的ts文件URL
 - 使用Python的multiprocessing模块实现多进程并行下载
 - 使用pycryptodome库处理AES-128加密的视频流
 - 通过tqdm显示下载进度
 - 临时文件保存在ts_files/目录下，下载完成后自动清理
-
-## 异常处理
-
-- 网络连接失败时，会返回对应的错误信息
-- 解析m3u8文件失败时，会提供详细的错误提示
-- 文件操作异常时，会捕获并返回友好的错误消息
+- 失败片段自动重试机制，最大重试次数可配置
 
 ## 注意事项
 

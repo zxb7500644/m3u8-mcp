@@ -198,7 +198,7 @@ async def analyze_m3u8(m3u8_url: str) -> str:
 
 # MCP工具：下载并处理m3u8视频
 @mcp.tool()
-async def download_m3u8_video(m3u8_url: str, output_path: str, processes: int = 4) -> str:
+async def download_m3u8_video(m3u8_url: str, output_path: str, processes: int = 4, max_retries: int = 3) -> str:
     """
     从m3u8链接下载视频，解密并合并为mp4文件
     
@@ -206,6 +206,7 @@ async def download_m3u8_video(m3u8_url: str, output_path: str, processes: int = 
         m3u8_url: m3u8文件的URL地址
         output_path: 输出mp4文件的本地保存路径
         processes: 并行下载的进程数，默认为4
+        max_retries: 失败片段的最大重试次数，默认为3
     
     Returns:
         输出文件的完整路径
@@ -273,12 +274,48 @@ async def download_m3u8_video(m3u8_url: str, output_path: str, processes: int = 
                 if isinstance(result, str) and result.endswith('.ts'):
                     ts_file_list.append(result)
                 else:
-                    failed_downloads.append(result)
+                    failed_downloads.append((i, result))
         
-        # 如果有下载失败的文件
+        # 重试逻辑：处理失败的片段
+        retry_count = 0
+        while failed_downloads and retry_count < max_retries:
+            retry_count += 1
+            print(f"\n第{retry_count}次重试下载 {len(failed_downloads)} 个失败片段...")
+            
+            # 准备重试参数
+            retry_args_list = []
+            for i, error_msg in failed_downloads:
+                # 错误信息中提取原始URL (从 "下载失败: URL, 错误: ..." 或 "处理失败: URL, 错误: ...")
+                parts = error_msg.split(", 错误:")
+                if len(parts) > 0:
+                    url_part = parts[0]
+                    ts_url = url_part.replace("下载失败: ", "").replace("处理失败: ", "")
+                    retry_args_list.append((ts_url, key, iv, i, None))
+            
+            # 清空上一轮的失败记录，准备记录这一轮的失败
+            still_failed = []
+            
+            # 执行重试
+            for args in tqdm(retry_args_list, desc=f"重试下载失败片段 (第{retry_count}次)"):
+                result = process_one_url(args)
+                if isinstance(result, str) and result.endswith('.ts'):
+                    ts_file_list.append(result)
+                else:
+                    still_failed.append((args[3], result))  # args[3] 是索引 i
+            
+            # 更新失败列表
+            failed_downloads = still_failed
+            
+            # 如果全部下载成功，退出循环
+            if not failed_downloads:
+                print(f"重试成功，所有片段均已下载")
+                break
+        
+        # 重试后仍有失败的文件
         if failed_downloads:
-            return f"下载完成，但有 {len(failed_downloads)} 个文件下载失败:\n" + "\n".join(failed_downloads[:5]) + (
-                f"\n... 和其他 {len(failed_downloads) - 5} 个文件" if len(failed_downloads) > 5 else ""
+            failed_msgs = [msg for _, msg in failed_downloads]
+            return f"下载完成，但有 {len(failed_downloads)} 个文件下载失败 (已重试{retry_count}次):\n" + "\n".join(failed_msgs[:5]) + (
+                f"\n... 和其他 {len(failed_msgs) - 5} 个文件" if len(failed_msgs) > 5 else ""
             )
         
         # 排序ts文件（确保顺序正确）
