@@ -1,0 +1,91 @@
+# MCP服务开发需求文档
+
+## 项目概述
+开发一个基于Docker的MCP（Model Context Protocol）服务，支持SSE（Server-Sent Events）传输协议，使其能够与n8n-nodes-mcp节点进行无缝集成。
+
+## 技术要求
+
+### 基础设施
+- Docker环境
+- 服务运行在端口3001上
+- 支持SSE（Server-Sent Events）传输协议
+- 符合MCP Protocol 1.0.0或更高版本规范
+
+### API端点
+- SSE端点：`http://<host>:3001/sse`
+- 消息发送端点（如与SSE端点不同，需要单独配置）
+
+### 安全性
+- 支持API认证头部配置
+- 支持环境变量管理敏感信息
+
+## 功能需求
+
+### 核心功能
+1. **工具提供**：服务应当提供一系列可以被n8n工作流调用的工具
+2. **资源访问**：支持读取资源的功能
+3. **提示模板**：提供可被获取的提示模板
+
+### 兼容性要求
+- 与n8n-nodes-mcp节点完全兼容
+- 支持以下操作：
+  - Execute Tool（执行工具）
+  - Get Prompt（获取提示）
+  - List Prompts（列出提示）
+  - List Resources（列出资源）
+  - List Tools（列出工具）
+  - Read Resource（读取资源）
+
+## 部署规范
+
+### Docker配置
+```yaml
+version: '3'
+
+services:
+  mcp-service:
+    build: .
+    # 或使用预构建镜像
+    # image: your-docker-image
+    ports:
+      - "3001:3001"
+    environment:
+      # 根据实际需要配置环境变量
+      - API_KEY=your-api-key
+      # 其他必要的环境变量
+    volumes:
+      # 如需持久化数据或配置
+      - ./data:/app/data
+```
+
+### 环境变量
+服务应当支持通过环境变量进行配置，包括但不限于：
+- API密钥
+- 数据源配置
+- 日志级别
+- 其他服务特定设置
+
+## 集成测试
+
+### 与n8n集成测试
+1. 启动Docker容器运行MCP服务
+2. 在n8n中配置MCP Client节点使用SSE连接：
+   - 连接类型：Server-Sent Events (SSE)
+   - SSE URL：http://localhost:3001/sse
+   - 添加必要的认证头部
+3. 测试各种操作功能：
+   - List Tools
+   - Execute Tool
+   - 其他操作
+
+## 交付成果
+
+1. Docker镜像或Dockerfile
+2. 详细的部署文档
+3. API文档描述所有可用工具和资源
+4. 示例n8n工作流配置
+
+## 参考资料
+- [n8n-nodes-mcp NPM包](https://www.npmjs.com/package/n8n-nodes-mcp)
+- [Model Context Protocol文档](https://modelcontextprotocol.github.io/)
+- [MCP SSE传输规范](https://github.com/modelcontextprotocol/protocol) 

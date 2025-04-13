@@ -2,27 +2,74 @@ import os
 import re
 import requests
 import asyncio
+import anyio
 import shutil
 import time
+import json
+import uvicorn
+from fastapi import FastAPI, Request, Response, Depends, HTTPException, Header
+from fastapi.security.api_key import APIKeyHeader
+from starlette.status import HTTP_403_FORBIDDEN
+from sse_starlette.sse import EventSourceResponse
+from fastapi.middleware.cors import CORSMiddleware
 from multiprocessing import Pool
 from tqdm import tqdm
 from Crypto.Cipher import AES
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import uuid
 
 from mcp.server import FastMCP
+from mcp.server.sse import SseServerTransport
+
+# 从环境变量获取API密钥，如果未设置则使用默认值
+API_KEY = os.environ.get("API_KEY", None)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 # 创建MCP服务器
 server_name = "MCP M3U8 Video Server"
 server_description = "一个用于下载、解密和合并m3u8视频的服务器"
 
-mcp = FastMCP(server_name)
+# 创建SSE传输
+sse_transport = SseServerTransport("/messages/")
+
+# 创建MCP服务器
+mcp = FastMCP(
+    name=server_name,
+    instructions=server_description
+)
 
 # 临时文件夹路径
 TEMP_DIR = 'ts_files/'
+# 数据存储目录
+DATA_DIR = os.environ.get("DATA_DIR", "data/")
 
-# 确保临时文件夹存在
+# 确保临时文件夹和数据目录存在
 os.makedirs(TEMP_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# API认证验证
+async def get_api_key(api_key_header: str = Depends(api_key_header)):
+    if API_KEY is None:
+        # 如果未配置API密钥，则不需要验证
+        return True
+    if api_key_header == API_KEY:
+        return True
+    raise HTTPException(
+        status_code=HTTP_403_FORBIDDEN, detail="认证失败，无效的API密钥"
+    )
+
+# 创建FastAPI应用
+app = FastAPI(title="MCP M3U8 Video Server")
+
+# 添加CORS支持
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 创建带有重试机制的会话
 def create_request_session(retries=3, backoff_factor=0.3):
@@ -157,6 +204,160 @@ def check_disk_space(path, required_space_mb=1000):
         return True, f"磁盘空间充足: {free_mb:.2f}MB 可用"
     except Exception as e:
         return False, f"检查磁盘空间失败: {str(e)}"
+
+# MCP提示模板数据
+PROMPTS = {
+    "download_video": {
+        "id": "download_video",
+        "name": "下载视频",
+        "description": "从m3u8链接下载视频的提示模板",
+        "content": "请帮我下载以下m3u8链接的视频：{url}，保存到{output_path}。"
+    },
+    "analyze_video": {
+        "id": "analyze_video",
+        "name": "分析视频",
+        "description": "分析m3u8视频的提示模板",
+        "content": "请分析以下m3u8链接的内容：{url}，并告诉我视频的基本信息。"
+    }
+}
+
+# MCP资源数据
+RESOURCES = {
+    "readme": {
+        "uri": "readme",
+        "content": """
+# MCP M3U8 视频下载服务
+
+这是一个用于下载、解密和合并m3u8视频的服务器，支持以下功能：
+
+1. 分析m3u8文件内容
+2. 下载并解密m3u8视频
+3. 检查下载状态
+4. 清理临时文件
+
+## 使用方法
+
+1. 使用`analyze_m3u8`工具分析视频信息
+2. 使用`download_m3u8_video`工具下载视频
+3. 使用`check_download_status`工具检查下载状态
+4. 使用`clean_temp_files`工具清理临时文件
+        """
+    },
+    "usage_example": {
+        "uri": "usage_example",
+        "content": """
+# 使用示例
+
+以下是在n8n中使用MCP客户端连接到此服务器的示例：
+
+1. 在n8n中添加MCP客户端节点
+2. 选择SSE连接方式
+3. 设置SSE URL为`http://<host>:3001/sse`
+4. 如果配置了API密钥，添加Header: `X-API-Key: <your-api-key>`
+5. 选择操作（如Execute Tool）
+6. 选择要执行的工具（如analyze_m3u8）
+7. 设置参数并执行
+        """
+    }
+}
+
+# 注册MCP提示模板
+for prompt_id, prompt_data in PROMPTS.items():
+    # 为每个提示模板创建唯一的函数
+    def create_prompt_func(p_id):
+        @mcp.prompt(name=PROMPTS[p_id]["id"], description=PROMPTS[p_id]["description"])
+        def prompt_func():
+            """返回提示模板内容"""
+            return [{"role": "system", "content": PROMPTS[p_id]["content"]}]
+        return prompt_func
+    
+    # 立即执行函数以避免闭包问题
+    create_prompt_func(prompt_id)
+
+# 注册MCP资源
+for res_uri, res_data in RESOURCES.items():
+    # 为每个资源创建唯一的函数
+    def create_resource_func(uri):
+        @mcp.resource(uri=f"resource://{uri}", name=uri, description=uri)
+        def resource_func():
+            """返回资源内容"""
+            return RESOURCES[uri]["content"]
+        return resource_func
+    
+    # 立即执行函数以避免闭包问题
+    create_resource_func(res_uri)
+
+# 添加MCP工具：列出提示模板
+@mcp.tool()
+async def list_prompts() -> str:
+    """
+    列出所有可用的提示模板
+    
+    Returns:
+        提示模板列表信息
+    """
+    result = "可用提示模板：\n\n"
+    for prompt_id, prompt in PROMPTS.items():
+        result += f"ID: {prompt['id']}\n"
+        result += f"名称: {prompt['name']}\n"
+        result += f"描述: {prompt['description']}\n\n"
+    
+    return result
+
+# 添加MCP工具：获取提示模板
+@mcp.tool()
+async def get_prompt(prompt_id: str) -> str:
+    """
+    获取指定的提示模板
+    
+    Args:
+        prompt_id: 提示模板的ID
+    
+    Returns:
+        提示模板内容
+    """
+    if prompt_id not in PROMPTS:
+        return f"错误：未找到ID为 {prompt_id} 的提示模板"
+    
+    prompt = PROMPTS[prompt_id]
+    result = f"ID: {prompt['id']}\n"
+    result += f"名称: {prompt['name']}\n"
+    result += f"描述: {prompt['description']}\n"
+    result += f"内容: {prompt['content']}\n"
+    
+    return result
+
+# 添加MCP工具：列出资源
+@mcp.tool()
+async def list_resources() -> str:
+    """
+    列出所有可用的资源
+    
+    Returns:
+        资源列表信息
+    """
+    result = "可用资源：\n\n"
+    for uri, resource in RESOURCES.items():
+        result += f"URI: {resource['uri']}\n"
+    
+    return result
+
+# 添加MCP工具：读取资源
+@mcp.tool()
+async def read_resource(uri: str) -> str:
+    """
+    读取指定的资源
+    
+    Args:
+        uri: 资源的URI
+    
+    Returns:
+        资源内容
+    """
+    if uri not in RESOURCES:
+        return f"错误：未找到URI为 {uri} 的资源"
+    
+    return RESOURCES[uri]['content']
 
 # MCP工具：分析m3u8文件
 @mcp.tool()
@@ -399,19 +600,55 @@ async def clean_temp_files() -> str:
     except Exception as e:
         return f"清理失败: {str(e)}"
 
+# 获取FastMCP创建的ASGI应用
+# mcp_app = mcp.sse_app()  # 不使用这种方式
+
+# 将MCP的SSE和消息处理集成到FastAPI
+@app.get("/sse")
+async def sse_route(request: Request, authenticated: bool = Depends(get_api_key)):
+    async with sse_transport.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        await mcp._mcp_server.run(
+            streams[0], streams[1], mcp._mcp_server.create_initialization_options()
+        )
+
+# 将消息路由挂载到FastAPI
+from starlette.routing import Mount
+
+# 直接使用SseServerTransport的消息处理器
+app.routes.append(Mount("/messages/", app=sse_transport.handle_post_message))
+
+# 添加健康检查端点
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "server": server_name}
+
+# 添加根路径信息
+@app.get("/")
+async def root():
+    return {
+        "name": server_name,
+        "description": server_description,
+        "tools": [t.name for t in await mcp._mcp_server.list_tools()],
+        "prompts": [p.name for p in await mcp._mcp_server.list_prompts()],
+        "resources": [r.uri for r in await mcp._mcp_server.list_resources()]
+    }
+
 if __name__ == "__main__":
-    # 运行MCP服务器
-    from mcp import stdio_server
+    import sys
     
+    # 使用MCP客户端连接而不是自行实现SSE
     print(f"启动 MCP M3U8 视频下载服务器...")
     print(f"服务器名称: {server_name}")
     print(f"服务器说明: {server_description}")
-    print("可用工具:")
-    print(" - analyze_m3u8: 分析m3u8文件，获取基本信息")
-    print(" - download_m3u8_video: 从m3u8链接下载视频，解密并合并为mp4文件") 
-    print(" - check_download_status: 检查当前下载状态和临时文件夹信息")
-    print(" - clean_temp_files: 清理下载过程中产生的临时文件")
-    print("\n使用Claude Desktop或其他MCP客户端连接到此服务器")
+    print(f"SSE端点: http://localhost:3001/sse")
     
-    # 使用stdio作为通信通道启动服务器
-    stdio_server(mcp) 
+    # 打印API认证状态
+    if API_KEY:
+        print("API认证: 已启用")
+    else:
+        print("API认证: 未启用")
+    
+    # 启动服务器
+    uvicorn.run(app, host="0.0.0.0", port=3001) 

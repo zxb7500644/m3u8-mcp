@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  mcp-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: mcp-service
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - HOST=0.0.0.0
+      - API_KEY=${API_KEY:-}  # 可选的API密钥
+      - DATA_DIR=/app/data
+    volumes:
+      - ../data:/app/data  # 持久化数据
+    restart: unless-stopped 
