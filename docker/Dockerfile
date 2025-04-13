@@ -1,13 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.10-slim
 
 WORKDIR /app
+
+# 复制应用代码
+COPY mcp_server.py .
 
 # 安装依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# 复制应用代码
-COPY mcp_server.py .
 
 # 创建数据和临时文件夹
 RUN mkdir -p /app/data /app/ts_files

@@ -1,6 +1,5 @@
 # MCP相关依赖
-mcp-python>=1.6.0
-
+mcp
 # Web服务和SSE相关
 fastapi>=0.95.0
 uvicorn>=0.21.1

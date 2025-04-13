@@ -268,7 +268,7 @@ for prompt_id, prompt_data in PROMPTS.items():
         @mcp.prompt(name=PROMPTS[p_id]["id"], description=PROMPTS[p_id]["description"])
         def prompt_func():
             """返回提示模板内容"""
-            return [{"role": "system", "content": PROMPTS[p_id]["content"]}]
+            return [{"role": "user", "content": PROMPTS[p_id]["content"]}]
         return prompt_func
     
     # 立即执行函数以避免闭包问题
