@@ -415,13 +415,13 @@ async def download_m3u8_video(m3u8_url: str, output_path: str, processes: int = 
     start_time = time.time()
     
     try:
+        # 创建输出目录（如果不存在）
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        
         # 检查磁盘空间
         space_ok, space_msg = check_disk_space(output_path)
         if not space_ok:
             return space_msg
-            
-        # 创建输出目录（如果不存在）
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
         # 下载m3u8文件内容
         session = create_request_session()
